@@ -10,11 +10,11 @@ How pedis process a command?
 
     +------>[FileEvent]          +------------->[FileEvent]
     |            |               |                   |
-    main -> acceptHandler -> createClient -> readQueryFromClient ----+
-                                                                     |
-                                                                     |
-    addReply <- specificCommand <- lookupCommand <- processCommand <-+
-    |               |
+    main -> acceptHandler -> createClient -> readQueryFromClient ------+
+                                                                       |
+                                                                       |
+    addReply <- [specific]Command <- lookupCommand <- processCommand <-+
+    |                 |
     +----------addReplySds
     |
     |
@@ -24,13 +24,11 @@ How pedis process a command?
 
 """
 
+import os.path
 import list
 import event
 import socket
 import logging
-
-
-logging.basicConfig(level=logging.DEBUG)
 
 
 def serverCron():
@@ -39,7 +37,7 @@ def serverCron():
     server.cronloops += 1
 
     if loops % 5 == 0:
-        print('{} clients connected.'.format(server.numconnection))
+        logging.debug('{} clients connected.'.format(server.numconnection))
     return 1000
 
 
@@ -77,6 +75,10 @@ class PedisServer(object):
     #: All supported cmds placed here
     commands = []
 
+    logfile = None
+
+    verbosity = None
+
     def __init__(self, host='127.0.0.1', port=6374):
         self.host = host
         self.port = port
@@ -86,8 +88,30 @@ class PedisServer(object):
 
         self.el.createTimeEvent(1000, serverCron, None)
 
+        self.__initConfig()
+
     def __initConfig(self):
-        pass
+        filepath = os.environ.get(
+            'PEDIS_CONFIG_FILE',
+            os.path.join(os.path.dirname(__file__), '..', 'pedis.conf')
+        )
+        with open(filepath, 'rb') as f:
+            for line in f.readlines():
+                if line.startswith('#') or line.startswith('\n'):
+                    continue
+                key, val = line.strip().split(' ')
+                if key == 'port':
+                    self.port = int(val)
+                elif key == 'loglevel':
+                    self.verbosity = {
+                        'debug': logging.DEBUG,
+                        'info': logging.INFO,
+                        'waining': logging.WARNING,
+                        'critical': logging.CRITICAL
+                    }.get(val, logging.DEBUG)
+                elif key == 'logfile':
+                    if val != 'stdout':
+                        self.logfile = val
 
     def __tcpServer(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -100,7 +124,7 @@ class PedisServer(object):
     def accept(self, fd, clientData):
         cobj, (host, port) = fd.accept()
         server.numconnection += 1
-        logging.info('Accepted: {}:{}'.format(host, port))
+        logging.debug('Accepted: {}:{}'.format(host, port))
         self.createClient(cobj)
 
     @classmethod
@@ -155,12 +179,17 @@ class PedisServer(object):
         self.el.createFileEvent(self.sobj,
                                 event.READABLE,
                                 self.accept, None)
+        logging.info('The server is now ready to accept connections.')
         self.el.main()
 
 #: Global PedisServer object.
 server = PedisServer()
 #: Global shared object.
 shared = SharedObjects()
+
+logging.basicConfig(level=server.verbosity,
+                    filename=server.logfile,
+                    format='%(levelname)s %(message)s')
 
 
 def pingCommand(c):
