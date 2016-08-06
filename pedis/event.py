@@ -11,6 +11,11 @@ import time
 from select import select
 
 
+__all__ = [
+    'eventloop',
+    'READABLE', 'WRITABLE', 'EXCEPTION',
+]
+
 READABLE = 1
 WRITABLE = 2
 EXCEPTION = 4
@@ -38,6 +43,9 @@ class FileEvent(object):
         self.clientData = clientData
         self.nextEvent = None
 
+    def __repr__(self):
+        return '<FileEvent {}>'.format(self.mask)
+
 
 class TimeEvent(object):
 
@@ -54,11 +62,14 @@ class TimeEvent(object):
         self.clientData = clientData
         self.nextEvent = None
 
+    def __repr__(self):
+        return '<TimeEvent when={}>'.format(self.when)
+
 
 class EventLoop(object):
 
     def __init__(self):
-        """Eventloop handle two kindle of event: FileEvent and TimeEvent
+        """Eventloop handle two kinde of events: FileEvent and TimeEvent
         which are placed in two singlely linked-list.
 
         :stopFlag: Set 1 to stop eventloop.
@@ -159,24 +170,29 @@ class EventLoop(object):
                 if ((fe.mask & READABLE) and (fd in readyrfds)) or \
                    ((fe.mask & WRITABLE) and (fd in readywfds)) or \
                    ((fe.mask & EXCEPTION) and (fd in readyefds)):
+
                     mask = 0
+
                     if fe.mask & READABLE and fd in readyrfds:
                         mask |= READABLE
                     if fe.mask & WRITABLE and fd in readywfds:
                         mask |= WRITABLE
                     if fe.mask & EXCEPTION and fd in readyefds:
                         mask |= EXCEPTION
-                    fe.fileProc(fd)
+                    fe.fileProc(fd, fe.clientData)
                     processed += 1
                     fe = self.fileEventHead
                     if fd in rfds:
                         rfds.remove(fd)
+                    if fd in readyrfds:
                         readyrfds.remove(fd)
                     if fd in wfds:
                         wfds.remove(fd)
+                    if fd in readywfds:
                         readywfds.remove(fd)
                     if fd in efds:
                         efds.remove(fd)
+                    if fd in readyefds:
                         readywfds.remove(fd)
                 else:
                     fe = fe.nextEvent
@@ -204,3 +220,6 @@ class EventLoop(object):
     def main(self):
         while not self.stopFlag:
             self.processEvents(ALL_EVENTS)
+
+# Singleton
+eventloop = EventLoop()
