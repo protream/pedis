@@ -32,6 +32,8 @@ from collections import namedtuple
 from linklist import LinkList
 
 
+DEFAULT_DBNUM = 16
+
 CMD_INLINE  = 1
 
 
@@ -40,6 +42,11 @@ def serverCron():
 
     loops = server.cronloops
     server.cronloops += 1
+
+    for i in range(server.dbnum):
+        numkeys = len(server.dicts[i].keys())
+        if loops % 5 == 0 and numkeys > 0:
+            debug('. DB {}: {} keys in dict'.format(i, numkeys))
 
     if loops % 5 == 0:
         debug('. {} clients connected.'.format(server.stat_numconnections))
@@ -57,6 +64,16 @@ class SharedObjects(object):
     err = '-ERR\r\n'
     nil = 'nil\r\n'
     pong = '+PONG\r\n'
+    select0 = 'select 0\r\n'
+    select1 = 'select 1\r\n'
+    select2 = 'select 2\r\n'
+    select3 = 'select 3\r\n'
+    select4 = 'select 4\r\n'
+    select5 = 'select 5\r\n'
+    select6 = 'select 6\r\n'
+    select7 = 'select 7\r\n'
+    select8 = 'select 8\r\n'
+    select8 = 'select 9\r\n'
 
 
 #------------
@@ -67,11 +84,16 @@ class PedisClient(object):
 
     def __init__(self):
         self.cobj = None
+        self.dict_ = None
+        self.dictid = None
         self.querybuf = None
         self.argc = 0
         self.argv = None
         self.flag = 0
         self.reply = None
+
+    def __repr__(self):
+        return '<PedisClient cobj={}>'.format(self.cobj)
 
 
 #------------
@@ -79,6 +101,11 @@ class PedisClient(object):
 #------------
 
 class PedisServer(object):
+
+    #: Python dict use as key:value databse
+    dicts = [{} for i in range(DEFAULT_DBNUM)]
+
+    dbnum = DEFAULT_DBNUM
 
     el = event.eventloop
 
@@ -96,6 +123,8 @@ class PedisServer(object):
     logfile = None
 
     verbosity = None
+
+    dbfilename = "dump.pdb"
 
     def __init__(self, host='127.0.0.1', port=6374):
         self.host = host
@@ -120,6 +149,7 @@ class PedisServer(object):
             for line in f.readlines():
                 if line.startswith('#') or line.startswith('\n'):
                     continue
+
                 key, val = line.strip().split(' ')
 
                 if key == 'port':
@@ -137,6 +167,9 @@ class PedisServer(object):
                     if val != 'stdout':
                         self.logfile = val
 
+                elif key == 'dir':
+                    pass
+
     def __tcpServer(self):
         """Create a tcp server. """
 
@@ -148,10 +181,13 @@ class PedisServer(object):
         return s
 
     @classmethod
-    def accept(self, fd, clientData):
-        """Accept a client connection."""
+    def accept(self, sobj, clientData):
+        """Accept a client connection.
 
-        cobj, (host, port) = fd.accept()
+        :param sobj: server socket object.
+        """
+
+        cobj, (host, port) = sobj.accept()
         server.stat_numconnections += 1
         debug('. Accepted: {}:{}'.format(host, port))
         self.createClient(cobj)
@@ -165,6 +201,8 @@ class PedisServer(object):
 
         client = PedisClient()
         client.cobj = cobj
+        client.dict_ = server.dicts[0]
+        client.dictid = 0
         client.reply = LinkList()
         self.el.createFileEvent(cobj,
                                 event.READABLE,
@@ -216,6 +254,10 @@ class PedisServer(object):
             self.addReply(client, '-ERR unknown command\r\n')
             return
 
+        if cmd.arity != client.argc:
+            self.addReply(client, '-ERR wrong number of arguments\r\n')
+            return
+
         cmd.proc(client)
 
     @classmethod
@@ -265,6 +307,9 @@ class PedisServer(object):
 # Commands
 #---------
 
+#: proc: command process funtion
+#: arity: number of arguments
+#: flags: command flags
 cmd = namedtuple('cmd', ['proc', 'arity', 'flags'])
 
 
@@ -275,6 +320,9 @@ class Commands(object):
         self.table = {
             'ping': cmd(self.ping, 1, CMD_INLINE),
             'echo': cmd(self.echo, 2, CMD_INLINE),
+            'get': cmd(self.get, 2, CMD_INLINE),
+            'save': cmd(self.save, 1, CMD_INLINE),
+            'select': cmd(self.select, 2, CMD_INLINE),
         }
 
     def lookup(self, cmd):
@@ -292,6 +340,34 @@ class Commands(object):
     def echo(self, c):
         server.addReply(c, c.argv[1])
         server.addReply(c, shared.crlf)
+
+    def set(self, c):
+        pass
+
+    def get(self, c):
+        key = c.argv[1]
+        if key not in c.dict_:
+            server.addReply(c, shared.nil)
+        else:
+            val = c.dict_[key]
+            server.addReply(c, val)
+            server.addReply(c, shared.crlf)
+
+    def select(self, c):
+        has_err = False
+        try:
+            id_ = int(c.argv[1])
+        except ValueError:
+            has_err = True
+        if id_ < 0 or id_ >= server.dbnum:
+            has_err = True
+        if has_err:
+            server.addReply(c, '-ERR invalid DB index\r\n')
+        else:
+            debug('. Select DB: {}'.format(id_))
+            c.dict_ = server.dicts[id_]
+            c.dictid = id_
+            server.addReply(c, shared.ok)
 
 
 #---------
