@@ -37,7 +37,7 @@ def serverCron():
     server.cronloops += 1
 
     if loops % 5 == 0:
-        logging.debug('{} clients connected.'.format(server.numconnection))
+        logging.debug('. {} clients connected.'.format(server.stat_numconnections))
     return 1000
 
 
@@ -62,12 +62,12 @@ class PedisClient(object):
 
 class PedisServer(object):
 
-    el = event.EventLoop()
+    el = event.eventloop
 
     #: All connected clients ared placed in this list
     clients = list.List()
 
-    numconnection = 0
+    stat_numconnections = 0
 
     #: Times of serverCron executed.
     cronloops = 0
@@ -123,8 +123,8 @@ class PedisServer(object):
     @classmethod
     def accept(self, fd, clientData):
         cobj, (host, port) = fd.accept()
-        server.numconnection += 1
-        logging.debug('Accepted: {}:{}'.format(host, port))
+        server.stat_numconnections += 1
+        logging.debug('. Accepted: {}:{}'.format(host, port))
         self.createClient(cobj)
 
     @classmethod
@@ -151,6 +151,7 @@ class PedisServer(object):
         self.el.deleteFileEvent(cobj, event.READABLE)
         self.el.deleteFileEvent(cobj, event.WRITABLE)
         cobj.close()
+        server.stat_numconnections -= 1
 
     @classmethod
     def processCommand(self, c):
@@ -179,7 +180,7 @@ class PedisServer(object):
         self.el.createFileEvent(self.sobj,
                                 event.READABLE,
                                 self.accept, None)
-        logging.info('The server is now ready to accept connections.')
+        logging.info('- The server is now ready to accept connections.')
         self.el.main()
 
 #: Global PedisServer object.
@@ -188,8 +189,7 @@ server = PedisServer()
 shared = SharedObjects()
 
 logging.basicConfig(level=server.verbosity,
-                    filename=server.logfile,
-                    format='%(levelname)s %(message)s')
+                    filename=server.logfile, format='%(message)s')
 
 
 def pingCommand(c):
