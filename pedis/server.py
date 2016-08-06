@@ -158,19 +158,26 @@ class PedisServer(object):
 
     @classmethod
     def createClient(self, cobj):
-        """Create client."""
+        """Create client.
 
-        c = PedisClient()
-        c.cobj = cobj
-        c.reply = LinkList()
+        :param cobj: client connect object.
+        """
+
+        client = PedisClient()
+        client.cobj = cobj
+        client.reply = LinkList()
         self.el.createFileEvent(cobj,
                                 event.READABLE,
-                                self.readQueryFromClient, c)
-        self.clients.addNodeTail(c)
+                                self.readQueryFromClient, client)
+        self.clients.addNodeTail(client)
 
     @classmethod
     def sendReplyToClient(self, cobj, client):
-        """Send reply to client."""
+        """Send reply to client.
+
+        :param cobj: client connect object.
+        :param client: pedis client object.
+        """
 
         while client.reply.length:
             node = client.reply.head
@@ -182,7 +189,10 @@ class PedisServer(object):
 
     @classmethod
     def freeClient(self, cobj):
-        """Free client."""
+        """Free client.
+
+        :param cobj: client connect object.
+        """
 
         self.el.deleteFileEvent(cobj, event.READABLE)
         self.el.deleteFileEvent(cobj, event.WRITABLE)
@@ -190,27 +200,31 @@ class PedisServer(object):
         server.stat_numconnections -= 1
 
     @classmethod
-    def processCommand(self, c):
+    def processCommand(self, client):
         """Process command end by clients.
 
-        :param c: client
+        :param client: pedis client object.
         """
 
-        if c.argv[0] == 'quit':
-            self.freeClient(c.cobj)
+        if client.argv[0] == 'quit':
+            self.freeClient(client.cobj)
             return
 
-        found, cmd = commands.lookup(c.argv[0])
+        found, cmd = commands.lookup(client.argv[0])
 
         if not found:
-            self.addReply(c, '-ERR unknown command\r\n')
+            self.addReply(client, '-ERR unknown command\r\n')
             return
 
-        cmd.proc(c)
+        cmd.proc(client)
 
     @classmethod
-    def readQueryFromClient(self, cobj, c):
-        """Read query content from client."""
+    def readQueryFromClient(self, cobj, client):
+        """Read query content from client.
+
+        :param cobj: client connect object.
+        :param client: pedis client object.
+        """
 
         data = cobj.recv(1024)
 
@@ -220,18 +234,22 @@ class PedisServer(object):
             return
 
         query = data.split()
-        c.argc = len(query)
-        c.argv = query
-        self.processCommand(c)
+        client.argc = len(query)
+        client.argv = query
+        self.processCommand(client)
 
     @classmethod
-    def addReply(self, client, obj):
-        """Add reply to the eventloop."""
+    def addReply(self, client, what):
+        """Add reply to the eventloop.
+
+        :param client: pedis client object.
+        :param what: content sended to the client.
+        """
 
         self.el.createFileEvent(client.cobj,
                                 event.WRITABLE,
                                 self.sendReplyToClient, client)
-        client.reply.addNodeTail(obj)
+        client.reply.addNodeTail(what)
 
     def run(self):
         """Run server to accept connection."""
