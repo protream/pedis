@@ -8,7 +8,7 @@ A doublely linked-list encapation.
 """
 
 
-__all__ = ['List']
+__all__ = ['LinkList']
 
 
 class Node(object):
@@ -26,11 +26,11 @@ class Node(object):
         self.next = next
 
 
-class List(object):
+class LinkList(object):
 
     """A doublely linked-list implementation.
 
-    >>> l = List()
+    >>> l = LinkList()
     >>> l.head == None
     True
     >>> l.tail == None
@@ -133,6 +133,7 @@ class List(object):
         self.length += 1
 
     def delNode(self, node):
+
         if node.prev:
             nove.prev.next = node.next
         else:
@@ -153,6 +154,7 @@ class List(object):
                  -3      -2      -1
 
         """
+
         if idx < 0:
             idx = (-idx) - 1
             n = self.tail
