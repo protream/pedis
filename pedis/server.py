@@ -35,6 +35,7 @@ from linklist import LinkList
 DEFAULT_DBNUM = 16
 
 CMD_INLINE  = 1
+CMD_BULK = 2
 
 
 def serverCron():
@@ -64,6 +65,8 @@ class SharedObjects(object):
     err = '-ERR\r\n'
     nil = 'nil\r\n'
     pong = '+PONG\r\n'
+    one = '1\r\n'
+    zero = '0\r\n'
     select0 = 'select 0\r\n'
     select1 = 'select 1\r\n'
     select2 = 'select 2\r\n'
@@ -131,13 +134,16 @@ class PedisServer(object):
         self.port = port
 
         #: socket object
-        self.sobj = self.__tcpServer()
+        self.sobj = self._tcpServer()
 
         self.el.createTimeEvent(1000, serverCron, None)
 
-        self.__initConfig()
+        self._initConfig()
 
-    def __initConfig(self):
+    def __repr__(self):
+        return '<PedisServer host={} port={}>'.format(self.host, self.port)
+
+    def _initConfig(self):
         """Resolve the pedis.conf file and init server config."""
 
         filepath = os.environ.get(
@@ -145,32 +151,38 @@ class PedisServer(object):
             os.path.join(os.path.dirname(__file__), '..', 'pedis.conf')
         )
 
-        with open(filepath, 'rb') as f:
-            for line in f.readlines():
-                if line.startswith('#') or line.startswith('\n'):
-                    continue
+        try:
+            f = open(filepath, 'rb')
+        except IOError:
+            return
 
-                key, val = line.strip().split(' ')
+        for line in f.readlines():
+            if line.startswith('#') or line.startswith('\n'):
+                continue
 
-                if key == 'port':
-                    self.port = int(val)
+            key, val = line.strip().split(' ')
 
-                elif key == 'loglevel':
-                    self.verbosity = {
-                        'debug': logging.DEBUG,
-                        'info': logging.INFO,
-                        'waining': logging.WARNING,
-                        'critical': logging.CRITICAL
-                    }.get(val, logging.DEBUG)
+            if key == 'port':
+                self.port = int(val)
 
-                elif key == 'logfile':
-                    if val != 'stdout':
-                        self.logfile = val
+            elif key == 'loglevel':
+                self.verbosity = {
+                    'debug': logging.DEBUG,
+                    'info': logging.INFO,
+                    'waining': logging.WARNING,
+                    'critical': logging.CRITICAL
+                }.get(val, logging.DEBUG)
 
-                elif key == 'dir':
-                    pass
+            elif key == 'logfile':
+                if val != 'stdout':
+                    self.logfile = val
 
-    def __tcpServer(self):
+            elif key == 'dir':
+                pass
+
+        f.close()
+
+    def _tcpServer(self):
         """Create a tcp server. """
 
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -254,7 +266,7 @@ class PedisServer(object):
             self.addReply(client, '-ERR unknown command\r\n')
             return
 
-        if cmd.arity != client.argc:
+        if client.argc != cmd.arity:
             self.addReply(client, '-ERR wrong number of arguments\r\n')
             return
 
@@ -285,7 +297,7 @@ class PedisServer(object):
         """Add reply to the eventloop.
 
         :param client: pedis client object.
-        :param what: content sended to the client.
+        :param what: content to send to the client.
         """
 
         self.el.createFileEvent(client.cobj,
@@ -307,7 +319,7 @@ class PedisServer(object):
 # Commands
 #---------
 
-#: proc: command process funtion
+#: proc: command process function
 #: arity: number of arguments
 #: flags: command flags
 cmd = namedtuple('cmd', ['proc', 'arity', 'flags'])
@@ -316,14 +328,36 @@ cmd = namedtuple('cmd', ['proc', 'arity', 'flags'])
 class Commands(object):
 
     def __init__(self):
+        """What is a INLINE cmd or a BULK cmd?
+
+        This is a protocal used by Redis to send datas. For example:
+
+        ::
+           Todo
+        ::
+        """
 
         self.table = {
             'ping': cmd(self.ping, 1, CMD_INLINE),
             'echo': cmd(self.echo, 2, CMD_INLINE),
             'get': cmd(self.get, 2, CMD_INLINE),
+            'set': cmd(self.set_, 3, CMD_BULK),
+            'setnx': cmd(self.setnx, 3, CMD_BULK),
+            'del': cmd(self.del_, 2, CMD_INLINE),
+            'incr': cmd(self.incr, 2, CMD_INLINE),
+            'decr': cmd(self.decr, 2, CMD_INLINE),
+            'incrby': cmd(self.incrby, 3, CMD_INLINE),
+            'decrby': cmd(self.decrby, 3, CMD_INLINE),
+            'exists': cmd(self.exists, 2, CMD_INLINE),
             'save': cmd(self.save, 1, CMD_INLINE),
             'select': cmd(self.select, 2, CMD_INLINE),
         }
+
+    def __repr__(self):
+        return '<Commands {}>'.format(list[self.table.keys()])
+
+    def __len__(self):
+        return len(self.table)
 
     def lookup(self, cmd):
         """Look up given cmd.
@@ -332,20 +366,70 @@ class Commands(object):
             (found, cmd)
         """
 
-        return (True, self.table[cmd]) if cmd in self.table else (False, None)
+        return (1, self.table[cmd]) if cmd in self.table else (0, None)
 
     def ping(self, c):
+        """Test connection, return PONG.
+
+        ::
+            PING
+        """
+
         server.addReply(c, shared.pong)
 
     def echo(self, c):
+        """Echo what you send.
+
+        ::
+            ECHO val
+        """
+
         server.addReply(c, c.argv[1])
         server.addReply(c, shared.crlf)
 
-    def set(self, c):
-        pass
+    def _setGeneric(self, c, nx):
+        """For set and setnx."""
+
+        key, val = c.argv[1], c.argv[2]
+
+        if nx and (key in c.dict_):
+            server.addReply(shared.one)
+            return
+
+        c.dict_[key] = val
+
+        if nx:
+            server.addReply(c, shared.one)
+        else:
+            server.addReply(c, shared.ok)
+
+    def set_(self, c):
+        """Set a key to a string value.
+
+        ::
+            SET key val
+        """
+
+        self._setGeneric(c, 0)
+
+    def setnx(self, c):
+        """Set a key to a string value if the key does not exist.
+
+        ::
+            SETNX key val
+        """
+
+        self._setGeneric(c, 1)
 
     def get(self, c):
+        """Return the string value of the key.
+
+        ::
+            GET key
+        """
+
         key = c.argv[1]
+
         if key not in c.dict_:
             server.addReply(c, shared.nil)
         else:
@@ -353,14 +437,125 @@ class Commands(object):
             server.addReply(c, val)
             server.addReply(c, shared.crlf)
 
+    def exists(self, c):
+        """Test if a key exists.
+
+        ::
+            EXISTS key
+        """
+
+        key = c.argv[1]
+
+        if key in c.dict_:
+            server.addReply(c, shared.one)
+        else:
+            server.addReply(c, shared.zero)
+
+    def del_(self, c):
+        """Delete a key.
+
+        Replys:
+            1: del ok
+            0: key not exists
+
+        ::
+            DEL key
+        """
+
+        key = c.argv[1]
+
+        try:
+            del(c.dict_[key])
+            server.addReply(c, shared.one)
+        except KeyError:
+            server.addReply(c, shared.zero)
+
+    def _incrDecr(self, c, x):
+        """Incrment or decrement key by x.
+
+        Returns:
+            0: key is not integer.
+          val: current val of the key.
+        """
+
+        key = c.argv[1]
+
+        try:
+            val = c.dict_[key]
+            try:
+                val = int(val)
+                val += x
+                rv = val
+                c.dict_[key] = str(val)
+            except ValueError:
+                rv = 0
+        except KeyError:
+            rv = 0
+
+        server.addReply(c, str(rv))
+        server.addReply(c, shared.crlf)
+
+    def incr(self, c):
+        """Increment the integer value of key.
+
+        ::
+            INCR key
+        """
+
+        self._incrDecr(c, 1)
+
+    def decr(self, c):
+        """Decrement the integer value of key.
+
+        ::
+            DECR key
+        """
+
+        self._incrDecr(c, -1)
+
+    def incrby(self, c):
+        """Increment the integer value of key by integer.
+
+        ::
+            INCRBY key integer
+        """
+
+        try:
+            x = int(c.argv[2])
+        except ValueError:
+            x = 0
+        self._incrDecr(c, x)
+
+    def decrby(self, c):
+        """Decrement the integer value of key by integer.
+
+        ::
+            DECRBY key integer
+        """
+
+        try:
+            x = int(c.argv[2])
+        except ValueError:
+            x = 0
+        self._incrDecr(c, -x)
+
     def select(self, c):
+        """Select the DB having the specified index.
+
+        ::
+            SELECT index
+        """
+
         has_err = False
+
         try:
             id_ = int(c.argv[1])
         except ValueError:
             has_err = True
+
         if id_ < 0 or id_ >= server.dbnum:
             has_err = True
+
         if has_err:
             server.addReply(c, '-ERR invalid DB index\r\n')
         else:
@@ -368,6 +563,9 @@ class Commands(object):
             c.dict_ = server.dicts[id_]
             c.dictid = id_
             server.addReply(c, shared.ok)
+
+    def save(self):
+        pass
 
 
 #---------
