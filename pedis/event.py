@@ -49,14 +49,14 @@ class FileEvent(object):
 
 class TimeEvent(object):
 
-    def __init__(self, ID, miliseconds, timeProc, clientData):
+    def __init__(self, id_, miliseconds, timeProc, clientData):
         """Time event structure.
 
         :param fd: client fd.
         :param mask: event type.
         :param fileProc: callback to process time event.
         """
-        self.ID = ID
+        self.id_ = id_
         self.when = time.time() + miliseconds / 1000
         self.timeProc = timeProc
         self.clientData = clientData
@@ -100,16 +100,16 @@ class EventLoop(object):
         del(fe)
 
     def createTimeEvent(self, miliseconds, timeProc, clientData):
-        ID = self.timeEventNextId
+        id_ = self.timeEventNextId
         self.timeEventNextId += 1
-        te = TimeEvent(ID, miliseconds, timeProc, clientData)
+        te = TimeEvent(id_, miliseconds, timeProc, clientData)
         te.nextEvent = self.timeEventHead
         self.timeEventHead = te
 
-    def deleteTimeEvent(self, ID):
+    def deleteTimeEvent(self, id_):
         te, prev = self.timeEventHead, None
         while te:
-            if te.ID == ID:
+            if te.id_ == id_:
                 if prev is None:
                     self.timeEventHead = te
                 else:
@@ -118,7 +118,7 @@ class EventLoop(object):
             te = te.nextEvent
         del(te)
 
-    def __searchNearestTimer(self):
+    def _searchNearestTimer(self):
         te = self.timeEventHead
         nearest = None
 
@@ -136,6 +136,7 @@ class EventLoop(object):
 
         fe = self.fileEventHead
 
+        # Nothing to do
         if not (flags & TIME_EVENTS) and \
            not (flags & FILE_EVENTS):
             return
@@ -155,7 +156,7 @@ class EventLoop(object):
 
         if numfd or ((flags & TIME_EVENTS) and not (flags & DONT_WAIT)):
             if flags & TIME_EVENTS and not flags & DONT_WAIT:
-                shortest = self.__searchNearestTimer()
+                shortest = self._searchNearestTimer()
             if shortest:
                 now = time.time()
                 timeout = shortest.when - now
@@ -199,9 +200,9 @@ class EventLoop(object):
 
         if flags & TIME_EVENTS:
             te = self.timeEventHead
-            maxID = self.timeEventNextId - 1
+            maxid = self.timeEventNextId - 1
             while te:
-                if te.ID > maxID:
+                if te.id_ > maxid:
                     te = te.nextEvent
                     continue
                 now = time.time()

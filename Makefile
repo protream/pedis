@@ -1,8 +1,8 @@
 server:
-	@cd ./pedis && python server.py
+	@python pedis/pedis.py
 
 client:
-	@cd ./pedis && python client.py
+	@python pedis/client.py
 
 clean:
 	@find . -name '*.pyc' -exec rm -f {} +

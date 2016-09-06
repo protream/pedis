@@ -133,7 +133,6 @@ class LinkList(object):
         self.length += 1
 
     def delNode(self, node):
-
         if node.prev:
             nove.prev.next = node.next
         else:
@@ -154,7 +153,6 @@ class LinkList(object):
                  -3      -2      -1
 
         """
-
         if idx < 0:
             idx = (-idx) - 1
             n = self.tail
